@@ -1,0 +1,23 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Virtualenv / local tooling
+.venv/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local indexes and caches
+.rag_cache/
+.rag_index/
+
+# Generated outputs
+artifacts/
+
+# OS
+.DS_Store
