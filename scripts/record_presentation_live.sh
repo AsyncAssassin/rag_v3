@@ -104,7 +104,10 @@ PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 PIP_BIN="$ROOT_DIR/.venv/bin/pip"
 STREAMLIT_BIN="$ROOT_DIR/.venv/bin/streamlit"
 UI_DEMO_SCRIPT="$ROOT_DIR/scripts/playwright_ui_demo.py"
-NARRATION_FILE="$ROOT_DIR/scripts/presentation_narration_ru.txt"
+NARRATION_FILE="$ROOT_DIR/scripts/legacy/presentation_narration_ru.txt"
+if [[ ! -f "$NARRATION_FILE" ]]; then
+  NARRATION_FILE="$ROOT_DIR/scripts/presentation_narration_ru.txt"
+fi
 
 TS="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="$ARTIFACTS_DIR/screencast_run_$TS"

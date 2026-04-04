@@ -147,6 +147,25 @@ with st.sidebar:
             )
 
 
+index_chunks = len(pipeline.index.indexed_chunks)
+index_state = "ready" if index_chunks > 0 else "empty"
+
+selfcheck_payload = st.session_state.selfcheck_result
+if not selfcheck_payload:
+    selfcheck_state = "not_run"
+elif bool(selfcheck_payload.get("ok")):
+    selfcheck_state = "ok"
+else:
+    selfcheck_state = "fail"
+
+reranker_warm = "yes" if pipeline.is_reranker_warm(reranker) else "no"
+
+st.subheader("Готовность к запросу")
+status_cols = st.columns(3)
+status_cols[0].metric("Index state", index_state, delta=f"chunks={index_chunks}")
+status_cols[1].metric("Selfcheck", selfcheck_state)
+status_cols[2].metric("Reranker warm", reranker_warm, delta=reranker)
+
 query = st.text_area("Ваш вопрос", height=120, placeholder="Например: о чем отчет Сбера за 2015 год?")
 
 if not pipeline.is_reranker_warm(reranker):
