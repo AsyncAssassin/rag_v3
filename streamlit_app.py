@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 import re
 import shutil
+import time
 from typing import Any
 import uuid
 
@@ -22,6 +23,9 @@ from rag_system.types import IndexStats
 MAX_FILES_PER_SESSION = 20
 MAX_FILE_SIZE_MB = 100
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+UPLOAD_TTL_HOURS = 24
+UPLOAD_MAX_TOTAL_GB = 2
+UPLOAD_MAX_TOTAL_BYTES = int(UPLOAD_MAX_TOTAL_GB * 1024 * 1024 * 1024)
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".csv", ".md"}
 
 SOURCE_MODES = ("demo", "uploads", "demo+uploads")
@@ -65,6 +69,103 @@ def _session_dirs() -> tuple[Path, Path, Path]:
     union_dir = root / "union"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     return root, uploads_dir, union_dir
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Return recursive size for directory in bytes."""
+    total = 0
+    try:
+        for node in path.rglob("*"):
+            try:
+                if not node.is_file():
+                    continue
+                total += node.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        return total
+    return total
+
+
+def _cleanup_upload_cache(root: Path = Path(".session_uploads")) -> dict[str, Any]:
+    """Best-effort cleanup for upload cache by TTL and total size."""
+    result = {
+        "removed_ttl": 0,
+        "removed_size": 0,
+        "bytes_before": 0,
+        "bytes_after": 0,
+        "warnings": [],
+    }
+    if not root.exists() or not root.is_dir():
+        return result
+
+    now_ts = time.time()
+    ttl_seconds = UPLOAD_TTL_HOURS * 3600
+    sessions: list[dict[str, Any]] = []
+    try:
+        session_dirs = list(root.iterdir())
+    except OSError as exc:
+        result["warnings"].append(f"iter failed for {root}: {exc}")
+        return result
+
+    for session_dir in session_dirs:
+        if not session_dir.is_dir():
+            continue
+        try:
+            mtime = session_dir.stat().st_mtime
+        except OSError as exc:
+            result["warnings"].append(f"stat failed for {session_dir}: {exc}")
+            continue
+        sessions.append(
+            {
+                "path": session_dir,
+                "mtime": mtime,
+                "size": _dir_size_bytes(session_dir),
+                "alive": True,
+            }
+        )
+
+    total_bytes = sum(int(item["size"]) for item in sessions)
+    result["bytes_before"] = total_bytes
+
+    for item in sorted(sessions, key=lambda x: float(x["mtime"])):
+        if (now_ts - float(item["mtime"])) <= ttl_seconds:
+            continue
+        session_dir = item["path"]
+        try:
+            shutil.rmtree(session_dir, ignore_errors=False)
+            item["alive"] = False
+            total_bytes -= int(item["size"])
+            result["removed_ttl"] += 1
+        except OSError as exc:
+            result["warnings"].append(f"ttl cleanup failed for {session_dir}: {exc}")
+
+    if total_bytes > UPLOAD_MAX_TOTAL_BYTES:
+        for item in sorted((s for s in sessions if s["alive"]), key=lambda x: float(x["mtime"])):
+            if total_bytes <= UPLOAD_MAX_TOTAL_BYTES:
+                break
+            session_dir = item["path"]
+            try:
+                shutil.rmtree(session_dir, ignore_errors=False)
+                item["alive"] = False
+                total_bytes -= int(item["size"])
+                result["removed_size"] += 1
+            except OSError as exc:
+                result["warnings"].append(f"size cleanup failed for {session_dir}: {exc}")
+
+    result["bytes_after"] = max(0, total_bytes)
+    return result
+
+
+def _show_cleanup_warnings(cleanup_result: dict[str, Any]) -> None:
+    """Render compact warning when cleanup hit non-fatal issues."""
+    warnings = cleanup_result.get("warnings") or []
+    if not warnings:
+        return
+    preview = "; ".join(str(msg) for msg in warnings[:3])
+    extra = len(warnings) - 3
+    suffix = f"; +{extra} more" if extra > 0 else ""
+    st.warning(f"Upload cache cleanup warning: {preview}{suffix}")
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -189,6 +290,17 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_mean(series: pd.Series) -> float:
+    """Return numeric mean or 0.0 for empty/NaN-only series."""
+    clean = series.dropna()
+    if clean.empty:
+        return 0.0
+    value = clean.mean()
+    if pd.isna(value):
+        return 0.0
+    return float(value)
 
 
 def _build_document_stats_df(pipeline: RAGPipeline, last_index_stats: IndexStats | None) -> pd.DataFrame:
@@ -348,8 +460,8 @@ def _render_stats_section(pipeline: RAGPipeline, last_index_stats: IndexStats | 
     docs_total = int(len(df))
     chunks_total = int(df["chunks"].sum())
     failed_docs = int((df["status"] == "hard_fail").sum())
-    avg_page_coverage = float(df["page_coverage"].dropna().mean() or 0.0)
-    avg_chars_per_page = float(df["chars_per_page"].dropna().mean() or 0.0)
+    avg_page_coverage = _safe_mean(df["page_coverage"])
+    avg_chars_per_page = _safe_mean(df["chars_per_page"])
     duplicate_files = int(last_index_stats.duplicate_files if last_index_stats else 0)
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
@@ -421,7 +533,9 @@ def _render_stats_section(pipeline: RAGPipeline, last_index_stats: IndexStats | 
 
 
 _ensure_session_defaults()
+startup_cleanup = _cleanup_upload_cache()
 session_root, uploads_dir, union_dir = _session_dirs()
+_show_cleanup_warnings(startup_cleanup)
 
 
 with st.sidebar:
@@ -450,6 +564,8 @@ with st.sidebar:
     )
 
     if st.button("Сохранить upload-файлы", use_container_width=True):
+        cleanup_before_save = _cleanup_upload_cache()
+        _show_cleanup_warnings(cleanup_before_save)
         st.session_state.upload_feedback = _save_uploaded_files(uploaded_items, uploads_dir)
 
     feedback = st.session_state.upload_feedback
