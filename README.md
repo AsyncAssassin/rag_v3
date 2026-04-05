@@ -1,5 +1,7 @@
 # rag_v3
 
+Демо-презентация: https://drive.google.com/file/d/1DWRpykaWdzfg4KteLC-9RoVAFvU2dGK4/view?usp=sharing
+
 Продвинутая RAG-система поверх локальных документов с гибридным retrieval,
 локальным rerank и web-интерфейсом на Streamlit.
 
