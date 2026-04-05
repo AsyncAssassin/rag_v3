@@ -136,16 +136,4 @@ python scripts/playwright_ui_demo.py --url http://localhost:8512 --output artifa
 
 Классы скриптов:
 - `core` — основной рабочий контур,
-- `ops/qa` — диагностические и quality-инструменты,
-- `legacy/demo-external` — внешние/исторические сценарии.
-
-## 8. Что не входит в core
-
-В `scripts/legacy/` лежат сценарии, не обязательные для текущего
-боевого потока `rag_v3`:
-- `preflight_reviews_defense.sh`
-- `rehearsal_timeline_reviews.sh`
-- `presentation_narration_ru.txt`
-
-Они сохранены как вспомогательные, но не участвуют в основном
-локальном/Cloud запуске.
+- `ops/qa` — диагностические и quality-инструменты.

@@ -4,7 +4,6 @@
 
 - `core`: ежедневный запуск, демо, воспроизводимый прогон.
 - `ops/qa`: диагностика и проверка качества/устойчивости.
-- `legacy/demo-external`: внешние/исторические сценарии, не обязательные для core-потока.
 
 | Script | Class | Зачем | Когда запускать | Обязателен для защиты |
 |---|---|---|---|---|
@@ -17,9 +16,63 @@
 | `pdf_regression.py` | core | Regression по извлечению PDF | После изменения extraction | Нет |
 | `judge_full_runner.py` | ops/qa | Full-run сравнение judge-провайдеров | Глубокая проверка качества | Нет |
 | `judge_full_ci.sh` | ops/qa | CI-обертка над full judge runner | Для CI/ночных прогонов | Нет |
-| `legacy/preflight_reviews_defense.sh` | legacy/demo-external | Preflight внешнего демо-стенда `RAG_over_reviews` | Только для внешнего стенда | Нет |
-| `legacy/rehearsal_timeline_reviews.sh` | legacy/demo-external | Таймкод-репетиция внешней защиты | Только для внешнего стенда | Нет |
-| `legacy/presentation_narration_ru.txt` | legacy/demo-external | Текст озвучки для внешнего сценария | Только с `--with-tts` | Нет |
+
+## Judge CI (`judge_full_ci.sh`)
+
+Назначение:
+- прогоняет full judge-проверку через `judge_full_runner.py`;
+- выполняет precheck окружения и индекса;
+- умеет автоматически делать `--resume` циклы;
+- формирует machine-readable и human-readable verdict.
+
+Когда запускать:
+- ночные/регулярные quality-прогоны;
+- перед релизом, если нужен строгий verdict по judge-метрикам;
+- после изменений в retrieval/rerank/pipeline, влияющих на качество ответов.
+
+Prerequisites:
+- заполненный `.env` с `GIGA_API_KEY` и `ANTHROPIC_API_KEY`;
+- построенный индекс `.rag_index/meta.json` и `.rag_index/chunks.json`;
+- goldset JSONL (по умолчанию `artifacts/goldset_sber_qa.jsonl`);
+- установленное окружение зависимостей (`.venv` или `python3` с нужными пакетами).
+
+Базовый запуск:
+
+```bash
+./scripts/judge_full_ci.sh --env .env
+```
+
+Типичный расширенный запуск:
+
+```bash
+./scripts/judge_full_ci.sh \
+  --env .env \
+  --goldset artifacts/goldset_sber_qa.jsonl \
+  --providers anthropic,gigachat \
+  --per-query-timeout-sec 900 \
+  --max-retries 2 \
+  --max-resume-cycles 3 \
+  --run-dir artifacts/judge_full_runner_ci_manual
+```
+
+Ключевые флаги:
+- `--providers <csv>`: провайдеры-судьи (default: `anthropic,gigachat`);
+- `--per-query-timeout-sec <sec>`: таймаут одного запроса;
+- `--max-retries <n>` и `--retry-backoff-sec <sec>`: retry-поведение;
+- `--max-resume-cycles <n>`: количество дополнительных resume-циклов;
+- `--run-dir <path>`: фиксированный каталог артефактов.
+
+Артефакты в `run-dir`:
+- `ci_verdict.json` и `ci_verdict.md`: итоговый verdict;
+- `commands.log`: журнал шагов;
+- `precheck.json`: результат precheck;
+- `cmd/*.meta.json`: метаданные шагов;
+- `cmd/*.out`, `cmd/*.err`: stdout/stderr каждого цикла.
+
+Exit-коды:
+- `0` — PASS;
+- `1` — FAIL;
+- `2` — INCONCLUSIVE (не удалось строго завершить за лимит resume-циклов).
 
 ## Core quick start
 
